@@ -1,0 +1,158 @@
+#deseq2("./MB468_0v30counts.txt","./MB468_0v30counts.csv", "3x3")
+
+#counts location
+infile = "./MBsimple_counts_fixed.txt"
+library(DESeq2)
+
+  
+# Extract the experimental design from the command line.
+#design for 3 reps 4 conditions
+design = c( "3", "3", "3", "3")
+
+design
+
+# Find the desing counts.
+reps1 = as.integer(design[1])
+reps2 = as.integer(design[2])
+reps3 = as.integer(design[3])
+reps4 = as.integer(design[4])
+
+
+
+# Set up the conditions based on the experimental setup.
+
+MB468_000 = rep("MB468_000", reps1)
+MB468_30 = rep("MB468_30", reps2)
+MB468_120 = rep("MB468_120", reps3)
+MB468_720 = rep("MB468_720", reps4)
+
+ 
+# Read the data from the standard input.
+path <- "./MBsimple_counts_fixed.txt"
+counts = read.table(path, header=TRUE, sep="\t", row.names=1 )
+
+# counts = read.csv(infile, header = TRUE, sep = ",")
+# colData <- read.csv(meta, header = TRUE, sep = ",") 
+# Assume the last N + M columns are the count matrix.
+
+# idx = ncol(counts) - (reps1 + reps2 + reps3 + reps4)
+# 
+# # Cut out the valid columns.
+# counts = counts[-c(1:idx)]
+# counts
+
+# Some tools generate the estimated counts as real numbers
+# DESeq 2 allows only integers. We need to convert real numbers to rounded integers.
+numeric_idx = sapply(counts, mode) == 'numeric'
+counts[numeric_idx] = round(counts[numeric_idx], 0)
+  
+# Build the dataset
+samples = names(counts)
+samples
+condition = factor(c(MB468_000, MB468_30, MB468_120, MB468_720))
+
+colData = data.frame(samples=samples, condition=condition)
+colData
+
+  
+# Create DESEq2 dataset.
+dds = DESeqDataSetFromMatrix(countData=counts, colData=colData, design = ~condition)
+  
+
+# Run deseq2.
+dds = DESeq(dds)
+  
+# Extract the DESeq2 results.
+# res = results(dds)
+res1 = results(dds, contrast = c("condition", "MB468_30", "MB468_000"))
+res2 = results(dds, contrast = c("condition", "MB468_120", "MB468_000"))
+res3 = results(dds, contrast = c("condition", "MB468_720", "MB468_000"))
+
+
+# Turn the DESeq2 results into data frames.
+# data = data.frame(res)
+data1 = data.frame(res1)
+data2 = data.frame(res2)
+data3 = data.frame(res3)
+
+  
+# Rename columns for what they are.
+# names(data)[names(data)=="pvalue"] <-"PValue"
+# names(data)[names(data)=="padj"] <-"FDR"
+names(data1)[names(data1)=="pvalue"] <-"PValue"
+names(data1)[names(data1)=="padj"] <-"FDR"
+
+names(data2)[names(data2)=="pvalue"] <-"PValue"
+names(data2)[names(data2)=="padj"] <-"FDR"
+
+names(data3)[names(data3)=="pvalue"] <-"PValue"
+names(data3)[names(data3)=="padj"] <-"FDR"
+
+
+# Create the additional columns.
+
+# data$foldChange = 2 ^ data$log2FoldChange
+# data$PAdj = p.adjust(data$PValue, method="hochberg")
+
+
+data1$foldChange = 2 ^ data1$log2FoldChange
+data1$PAdj = p.adjust(data1$PValue, method="hochberg")
+
+
+data2$foldChange = 2 ^ data2$log2FoldChange
+data2$PAdj = p.adjust(data2$PValue, method="hochberg")
+
+
+data3$foldChange = 2 ^ data3$log2FoldChange
+data3$PAdj = p.adjust(data3$PValue, method="hochberg")
+
+
+  
+# Sort the data by PValue to compute false discovery counts.
+#data = data[with(data, order(PValue, -foldChange)), ]
+data1 = data1[with(data1, order(PValue, -foldChange)), ]
+
+data2 = data2[with(data2, order(PValue, -foldChange)), ]
+
+data3 = data3[with(data3, order(PValue, -foldChange)), ]
+
+
+# Compute the false discovery counts on the sorted table.
+#data$falsePos = 1:nrow(data) * data$FDR
+data1$falsePos = 1:nrow(data1) * data1$FDR
+
+data2$falsePos = 1:nrow(data2) * data2$FDR
+
+data3$falsePos = 1:nrow(data3) * data3$FDR
+
+
+# Rearrange the columns into the same order as other methods do.
+#data = data[c(1,7,8,9,2,3,4,5, 10, 6, 11)]
+data1 = data1[c(1,7,2,3,4,5, 8, 6, 9)]
+
+data2 = data2[c(1,7,2,3,4,5, 8, 6, 9)]
+
+data3 = data3[c(1,7,2,3,4,5, 8, 6, 9)]
+
+# Get the normalized counts.
+normed = counts(dds, normalized=TRUE)
+  
+# Round normalized counts to a single digit.
+normed = round(normed, 1)
+  
+
+
+
+# Write the results to the standard output.
+# write.csv(total, file=outfile, row.names=FALSE, quote=FALSE)
+write.csv(data1, file="./ComMB_0_30.csv", row.names=TRUE, quote=FALSE)
+
+
+write.csv(data2, file="./ComMB_0_120.csv", row.names=TRUE, quote=FALSE)
+
+
+write.csv(data3, file="./ComMB_0_720.csv", row.names=TRUE, quote=FALSE)
+
+
+  
+
