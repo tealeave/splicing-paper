@@ -1,5 +1,5 @@
 # RNA Splicing Analysis Configuration
-# Created: April 28, 2025
+# Created: April, 2025
 
 # Data paths
 CONFIG <- list(
