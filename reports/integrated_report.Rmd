@@ -1,0 +1,300 @@
+---
+title: "RNA Splicing Analysis Report"
+author: "David Lin"
+date: "`r params$date`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: cosmo
+    highlight: tango
+    code_folding: hide
+params:
+  config: NULL
+  date: !r Sys.Date()
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+# Load required libraries
+library(DESeq2)
+library(maser)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(pheatmap)
+library(DT)
+
+# Source utility functions
+source("../R/deseq2_functions.R")
+source("../R/rmats_functions.R")
+
+# Get configuration
+config <- params$config
+```
+
+# Introduction
+
+This report presents the results of RNA splicing analysis, including differential gene expression analysis using DESeq2 and alternative splicing analysis using rMATS/MASER.
+
+## Analysis Overview
+
+The analysis pipeline consists of the following steps:
+
+1. Differential gene expression analysis using DESeq2
+2. Alternative splicing analysis using rMATS/MASER
+3. Integration of results to identify genes affected by both differential expression and alternative splicing
+
+## Sample Information
+
+```{r sample-info}
+# Load count data
+count_file <- file.path(config$counts_dir, "MBsimple_counts.txt")
+counts <- load_count_data(count_file)
+
+# Create sample information table
+sample_info <- data.frame(
+  Sample = colnames(counts),
+  Condition = unlist(
+    mapply(
+      function(cond, rep_count) rep(cond, rep_count),
+      config$deseq2$conditions,
+      as.integer(config$deseq2$design),
+      SIMPLIFY = FALSE
+    )
+  )
+)
+
+# Display sample information
+DT::datatable(sample_info, options = list(pageLength = 10))
+```
+
+# Differential Gene Expression Analysis
+
+## PCA Analysis
+
+```{r pca-plot}
+# Load count data
+counts <- load_count_data(count_file)
+
+# Create DESeq2 dataset
+reps <- as.integer(config$deseq2$design)
+condition_groups <- config$deseq2$conditions
+dds <- create_deseq_dataset(counts, condition_groups, reps)
+dds <- DESeq(dds)
+
+# Create PCA plot
+vsd <- vst(dds, blind = FALSE)
+pca_data <- plotPCA(vsd, intgroup = "condition", returnData = TRUE)
+pca_plot <- ggplot(pca_data, aes(PC1, PC2, color = condition)) +
+  geom_point(size = 3) +
+  theme_minimal() +
+  ggtitle("PCA of RNA-seq Samples")
+
+# Display PCA plot
+print(pca_plot)
+```
+
+## Sample Distance Heatmap
+
+```{r sample-distance}
+# Create heatmap of sample distances
+sampleDists <- dist(t(assay(vsd)))
+sampleDistMatrix <- as.matrix(sampleDists)
+rownames(sampleDistMatrix) <- colnames(vsd)
+colnames(sampleDistMatrix) <- colnames(vsd)
+
+# Display heatmap
+pheatmap(sampleDistMatrix,
+         clustering_distance_rows = sampleDists,
+         clustering_distance_cols = sampleDists,
+         main = "Sample Distance Heatmap")
+```
+
+## Differential Expression Results
+
+```{r deseq2-results}
+# Load DESeq2 results
+result_files <- lapply(config$deseq2$output_files, function(file) {
+  file.path(config$tables_dir, file)
+})
+
+# Create list to store results
+deseq2_results <- list()
+
+# Load results for each comparison
+for (i in seq_along(result_files)) {
+  if (file.exists(result_files[[i]])) {
+    deseq2_results[[i]] <- read.csv(result_files[[i]], row.names = 1)
+  }
+}
+
+# Display summary of differential expression results
+summary_table <- data.frame(
+  Comparison = sapply(seq_along(config$deseq2$comparisons), function(i) {
+    paste(config$deseq2$comparisons[[i]][1], "vs", config$deseq2$comparisons[[i]][2])
+  }),
+  TotalGenes = sapply(deseq2_results, nrow),
+  SignificantGenes = sapply(deseq2_results, function(df) sum(df$FDR < 0.05)),
+  UpregulatedGenes = sapply(deseq2_results, function(df) sum(df$FDR < 0.05 & df$log2FoldChange > 0)),
+  DownregulatedGenes = sapply(deseq2_results, function(df) sum(df$FDR < 0.05 & df$log2FoldChange < 0))
+)
+
+# Display summary table
+DT::datatable(summary_table, options = list(pageLength = 10))
+```
+
+## MA Plots
+
+```{r ma-plots, fig.height=8, fig.width=10}
+# Create MA plots for each comparison
+par(mfrow = c(2, 2))
+for (i in seq_along(deseq2_results)) {
+  # Create DESeq2 results object
+  res <- DESeqResults(
+    DataFrame(
+      baseMean = deseq2_results[[i]]$baseMean,
+      log2FoldChange = deseq2_results[[i]]$log2FoldChange,
+      pvalue = deseq2_results[[i]]$PValue,
+      padj = deseq2_results[[i]]$FDR
+    )
+  )
+  
+  # Plot MA plot
+  plotMA(res, main = paste("MA Plot:", config$deseq2$comparisons[[i]][1], "vs", config$deseq2$comparisons[[i]][2]))
+}
+```
+
+# Alternative Splicing Analysis
+
+## Summary of Alternative Splicing Events
+
+```{r splicing-summary}
+# Load splicing summary tables
+splicing_dir <- file.path(config$tables_dir, "splicing")
+summary_files <- list.files(splicing_dir, pattern = "_summary.csv", full.names = TRUE)
+
+# Create list to store results
+splicing_summaries <- list()
+
+# Load summary for each comparison
+for (file in summary_files) {
+  comparison <- gsub("_summary.csv", "", basename(file))
+  splicing_summaries[[comparison]] <- read.csv(file)
+}
+
+# Combine all summaries
+all_summaries <- bind_rows(lapply(names(splicing_summaries), function(comp) {
+  cbind(Comparison = comp, splicing_summaries[[comp]])
+}))
+
+# Display summary table
+DT::datatable(all_summaries, options = list(pageLength = 10))
+```
+
+## Volcano Plots
+
+```{r volcano-plots, fig.height=10, fig.width=12}
+# Load volcano plot images
+volcano_dir <- file.path(config$figures_dir, "splicing")
+volcano_files <- list.files(volcano_dir, pattern = "_volcano.pdf", full.names = TRUE)
+
+# Display message if no volcano plots are found
+if (length(volcano_files) == 0) {
+  cat("No volcano plot images found in", volcano_dir)
+} else {
+  # Display a message about where to find the volcano plots
+  cat("Volcano plots for alternative splicing events are available in the following directory:", volcano_dir)
+}
+```
+
+# Integration of Results
+
+## Genes Affected by Both Differential Expression and Alternative Splicing
+
+```{r integrated-analysis}
+# Load detailed splicing event tables
+event_files <- list.files(splicing_dir, pattern = "_events.csv", full.names = TRUE)
+
+# Create list to store results
+splicing_events <- list()
+
+# Load events for each file
+for (file in event_files) {
+  key <- gsub("_events.csv", "", basename(file))
+  splicing_events[[key]] <- read.csv(file)
+}
+
+# Extract gene IDs from splicing events
+splicing_genes <- lapply(splicing_events, function(df) {
+  if ("geneSymbol" %in% colnames(df)) {
+    return(unique(df$geneSymbol))
+  } else if ("GeneID" %in% colnames(df)) {
+    return(unique(df$GeneID))
+  } else {
+    return(character(0))
+  }
+})
+
+# Extract differentially expressed genes
+de_genes <- lapply(deseq2_results, function(df) {
+  rownames(df)[df$FDR < 0.05]
+})
+
+# Find overlap between DE and AS genes
+overlap_results <- data.frame(
+  Comparison = character(),
+  EventType = character(),
+  DEGenes = integer(),
+  ASGenes = integer(),
+  OverlapGenes = integer(),
+  stringsAsFactors = FALSE
+)
+
+for (i in seq_along(de_genes)) {
+  de_comparison <- paste(config$deseq2$comparisons[[i]][1], "vs", config$deseq2$comparisons[[i]][2])
+  
+  for (j in seq_along(splicing_genes)) {
+    as_key <- names(splicing_genes)[j]
+    as_comparison <- strsplit(as_key, "_")[[1]][1]
+    as_event_type <- strsplit(as_key, "_")[[1]][2]
+    
+    # Skip if comparisons don't match
+    if (!grepl(as_comparison, de_comparison, fixed = TRUE)) {
+      next
+    }
+    
+    # Find overlap
+    de_set <- de_genes[[i]]
+    as_set <- splicing_genes[[j]]
+    overlap <- intersect(de_set, as_set)
+    
+    # Add to results
+    overlap_results <- rbind(overlap_results, data.frame(
+      Comparison = de_comparison,
+      EventType = as_event_type,
+      DEGenes = length(de_set),
+      ASGenes = length(as_set),
+      OverlapGenes = length(overlap),
+      stringsAsFactors = FALSE
+    ))
+  }
+}
+
+# Display overlap results
+if (nrow(overlap_results) > 0) {
+  DT::datatable(overlap_results, options = list(pageLength = 10))
+} else {
+  cat("No overlap found between differentially expressed genes and alternatively spliced genes.")
+}
+```
+
+# Conclusion
+
+This report presents the results of RNA splicing analysis, including differential gene expression and alternative splicing. The integration of these results provides insights into genes that are affected by both mechanisms, which may play important roles in the biological processes under study.
+
+```{r session-info}
+# Display session information
+sessionInfo()
+```
