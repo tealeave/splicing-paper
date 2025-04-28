@@ -7,7 +7,7 @@
 #' alternative splicing analysis with rMATS/MASER.
 #'
 #' @author David Lin
-#' @date April, 2025
+#' @date April 28, 2025
 
 # Record start time
 start_time <- Sys.time()
@@ -21,11 +21,17 @@ suppressPackageStartupMessages({
 # Source configuration
 source("config/analysis_config.R")
 
+# Create all necessary directories
+dir.create(CONFIG$output_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(CONFIG$figures_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(CONFIG$tables_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(file.path(CONFIG$figures_dir, "splicing"), showWarnings = FALSE, recursive = TRUE)
+dir.create(file.path(CONFIG$tables_dir, "splicing"), showWarnings = FALSE, recursive = TRUE)
+dir.create(file.path(CONFIG$output_dir, "reports"), showWarnings = FALSE, recursive = TRUE)
+
 # Create log directory
 log_dir <- file.path(CONFIG$output_dir, "logs")
-if (!dir.exists(log_dir)) {
-  dir.create(log_dir, recursive = TRUE)
-}
+dir.create(log_dir, showWarnings = FALSE, recursive = TRUE)
 
 # Set up logging
 log_file <- file.path(log_dir, paste0("pipeline_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".log"))
@@ -59,12 +65,50 @@ tryCatch({
 # Generate integrated report
 cat("Step 3: Generating integrated report...\n")
 tryCatch({
+  # Create reports directory using absolute path
+  reports_dir <- normalizePath(file.path(CONFIG$output_dir, "reports"), mustWork = FALSE)
+  dir.create(reports_dir, showWarnings = TRUE, recursive = TRUE)
+  
+  # Create the directory manually if it doesn't exist
+  if (!dir.exists(reports_dir)) {
+    system(paste("mkdir -p", reports_dir))
+    Sys.sleep(1)  # Wait a moment to ensure directory is created
+  }
+  
+  # Double-check that the directory exists
+  if (!dir.exists(reports_dir)) {
+    stop(paste("Failed to create directory:", reports_dir))
+  } else {
+    cat("Reports directory created successfully:", reports_dir, "\n")
+  }
+  
+  # Convert relative paths in CONFIG to absolute paths
+  project_dir <- normalizePath(".")
+  abs_config <- CONFIG
+  
+  # Convert relative paths to absolute
+  if (grepl("^\\./", abs_config$counts_dir)) {
+    abs_config$counts_dir <- file.path(project_dir, substring(abs_config$counts_dir, 3))
+  }
+  if (grepl("^\\./", abs_config$rmats_dir)) {
+    abs_config$rmats_dir <- file.path(project_dir, substring(abs_config$rmats_dir, 3))
+  }
+  if (grepl("^\\./", abs_config$output_dir)) {
+    abs_config$output_dir <- file.path(project_dir, substring(abs_config$output_dir, 3))
+  }
+  if (grepl("^\\./", abs_config$figures_dir)) {
+    abs_config$figures_dir <- file.path(project_dir, substring(abs_config$figures_dir, 3))
+  }
+  if (grepl("^\\./", abs_config$tables_dir)) {
+    abs_config$tables_dir <- file.path(project_dir, substring(abs_config$tables_dir, 3))
+  }
+  
   # Create Rmarkdown report
   rmarkdown::render(
-    "reports/integrated_report.Rmd",
-    output_file = file.path(CONFIG$output_dir, "integrated_report.html"),
+    input = normalizePath("reports/integrated_report.Rmd"),
+    output_file = file.path(reports_dir, "integrated_report.html"),
     params = list(
-      config = CONFIG,
+      config = abs_config,
       date = Sys.Date()
     )
   )
