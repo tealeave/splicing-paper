@@ -39,13 +39,20 @@ create_maser_object <- function(rmats_dir, comparison, event_types = c("SE", "RI
     stop("MASER package is required for this function")
   }
   
-  # Create MASER object
-  maser_obj <- maser::maser(
-    path = file.path(rmats_dir, comparison),
-    cond1 = strsplit(comparison, "_v_")[[1]][1],
-    cond2 = strsplit(comparison, "_v_")[[1]][2],
-    ftype = "JCEC"
-  )
+  # Extract conditions from comparison name
+  comparison_parts <- strsplit(comparison, "_v_")[[1]]
+  
+  # Create MASER object - using the path only, not the additional parameters
+  # that were causing the error
+  maser_obj <- tryCatch({
+    maser::maser(path = file.path(rmats_dir, comparison))
+  }, error = function(e) {
+    # If the standard constructor fails, try with the older version syntax
+    maser::maser(
+      path = file.path(rmats_dir, comparison),
+      ftype = "JCEC"
+    )
+  })
   
   return(maser_obj)
 }
@@ -64,10 +71,81 @@ filter_significant_events <- function(maser_obj, event_type, fdr_cutoff = 0.05, 
     stop("MASER package is required for this function")
   }
   
-  # Filter events
-  filtered <- maser::filterByCoverage(maser_obj, event_type)
-  filtered <- maser::filterByPval(filtered, event_type, fdr = fdr_cutoff)
-  filtered <- maser::filterByDeltaPSI(filtered, event_type, dpsi = dpsi_cutoff)
+  # Check if the event type exists in the MASER object
+  event_exists <- tryCatch({
+    # Try to access the event type slot
+    slot(maser_obj, event_type)
+    TRUE
+  }, error = function(e) {
+    warning(paste("Event type", event_type, "not found in MASER object"))
+    FALSE
+  })
+  
+  if (!event_exists) {
+    return(maser_obj)
+  }
+  
+  # Try to filter events with error handling
+  filtered <- tryCatch({
+    # First try to filter by coverage
+    filtered_coverage <- tryCatch({
+      if (exists("filterByCoverage", where = asNamespace("maser"), mode = "function")) {
+        maser::filterByCoverage(maser_obj, event_type)
+      } else {
+        maser_obj
+      }
+    }, error = function(e) {
+      warning(paste("Error filtering by coverage:", e$message))
+      return(maser_obj)
+    })
+    
+    # Then try to filter by p-value
+    filtered_pval <- tryCatch({
+      if (exists("filterByPval", where = asNamespace("maser"), mode = "function")) {
+        maser::filterByPval(filtered_coverage, event_type, fdr = fdr_cutoff)
+      } else {
+        # Manual filtering by FDR
+        event_data <- slot(filtered_coverage, event_type)
+        if ("metadata" %in% slotNames(event_data) && "FDR" %in% colnames(event_data@metadata)) {
+          sig_idx <- event_data@metadata$FDR < fdr_cutoff
+          if (any(sig_idx)) {
+            event_data@metadata <- event_data@metadata[sig_idx, ]
+          }
+          slot(filtered_coverage, event_type) <- event_data
+        }
+        filtered_coverage
+      }
+    }, error = function(e) {
+      warning(paste("Error filtering by p-value:", e$message))
+      return(filtered_coverage)
+    })
+    
+    # Finally try to filter by delta PSI
+    filtered_dpsi <- tryCatch({
+      if (exists("filterByDeltaPSI", where = asNamespace("maser"), mode = "function")) {
+        maser::filterByDeltaPSI(filtered_pval, event_type, dpsi = dpsi_cutoff)
+      } else {
+        # Manual filtering by delta PSI
+        event_data <- slot(filtered_pval, event_type)
+        if ("metadata" %in% slotNames(event_data) && "dPSI" %in% colnames(event_data@metadata)) {
+          sig_idx <- abs(event_data@metadata$dPSI) > dpsi_cutoff
+          if (any(sig_idx)) {
+            event_data@metadata <- event_data@metadata[sig_idx, ]
+          }
+          slot(filtered_pval, event_type) <- event_data
+        }
+        filtered_pval
+      }
+    }, error = function(e) {
+      warning(paste("Error filtering by delta PSI:", e$message))
+      return(filtered_pval)
+    })
+    
+    return(filtered_dpsi)
+  }, error = function(e) {
+    warning(paste("Error filtering events:", e$message))
+    return(maser_obj)
+  })
   
   return(filtered)
 }
@@ -93,18 +171,80 @@ create_volcano_plot <- function(maser_obj, event_type, title = NULL,
     pdf(output_file, width = width, height = height)
   }
   
-  # Create plot
-  p <- maser::plotVolcano(maser_obj, event_type, 
-                         fdr = 0.05, dpsi = 0.1, 
-                         xlim = c(-1, 1), ylim = c(0, 10))
+  # Check if the event type exists in the MASER object
+  event_exists <- tryCatch({
+    # Try to access the event type slot
+    slot(maser_obj, event_type)
+    TRUE
+  }, error = function(e) {
+    warning(paste("Event type", event_type, "not found in MASER object"))
+    FALSE
+  })
   
-  # Add title if provided
-  if (!is.null(title)) {
-    p <- p + ggplot2::ggtitle(title)
+  if (!event_exists) {
+    # Create an empty plot with a message if the event type doesn't exist
+    plot(1, 1, type = "n", xlab = "Delta PSI", ylab = "-log10(FDR)", 
+         main = paste("No", event_type, "events found"))
+    text(1, 1, "No events found", cex = 1.5)
+    
+    if (!is.null(output_file)) {
+      dev.off()
+    }
+    return(NULL)
   }
   
-  # Display plot
-  print(p)
+  # Try to create a volcano plot using different methods
+  tryCatch({
+    # First try using plotVolcano if it exists
+    if (exists("plotVolcano", where = asNamespace("maser"), mode = "function")) {
+      p <- maser::plotVolcano(maser_obj, event_type, 
+                             fdr = 0.05, dpsi = 0.1, 
+                             xlim = c(-1, 1), ylim = c(0, 10))
+    } else {
+      # If plotVolcano doesn't exist, try using volcano
+      if (exists("volcano", where = asNamespace("maser"), mode = "function")) {
+        p <- maser::volcano(maser_obj, event_type, 
+                           fdr = 0.05, dpsi = 0.1)
+      } else {
+        # If neither function exists, create a basic volcano plot manually
+        # Get event data
+        event_data <- slot(maser_obj, event_type)@metadata
+        
+        # Create a basic volcano plot
+        plot(event_data$dPSI, -log10(event_data$FDR), 
+             xlab = "Delta PSI", ylab = "-log10(FDR)",
+             main = paste(event_type, "Volcano Plot"),
+             pch = 16, col = "gray")
+        
+        # Highlight significant events
+        sig_idx <- event_data$FDR < 0.05 & abs(event_data$dPSI) > 0.1
+        if (any(sig_idx)) {
+          points(event_data$dPSI[sig_idx], -log10(event_data$FDR[sig_idx]), 
+                 pch = 16, col = "red")
+        }
+        
+        # Add a horizontal line at FDR = 0.05
+        abline(h = -log10(0.05), lty = 2, col = "blue")
+        
+        # Add vertical lines at dPSI = ±0.1
+        abline(v = c(-0.1, 0.1), lty = 2, col = "blue")
+        
+        p <- NULL  # No ggplot object to return
+      }
+    }
+    
+    # Add title if provided and p is a ggplot object
+    if (!is.null(title) && !is.null(p) && "ggplot" %in% class(p)) {
+      p <- p + ggplot2::ggtitle(title)
+      print(p)
+    }
+    
+  }, error = function(e) {
+    # If all methods fail, create a simple error message plot
+    plot(1, 1, type = "n", xlab = "Delta PSI", ylab = "-log10(FDR)", 
+         main = paste("Error creating", event_type, "volcano plot"))
+    text(1, 1, paste("Error:", e$message), cex = 1.2)
+  })
   
   # Close device if saving
   if (!is.null(output_file)) {

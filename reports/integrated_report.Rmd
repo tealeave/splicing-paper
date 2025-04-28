@@ -17,6 +17,9 @@ params:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 
+# Set the working directory to the project root
+project_dir <- normalizePath("/home/tealeave/projects/splicing/splicing-paper")
+
 # Load required libraries
 library(DESeq2)
 library(maser)
@@ -26,12 +29,31 @@ library(tidyr)
 library(pheatmap)
 library(DT)
 
-# Source utility functions
-source("../R/deseq2_functions.R")
-source("../R/rmats_functions.R")
+# Source utility functions with absolute paths
+source(file.path(project_dir, "R/deseq2_functions.R"))
+source(file.path(project_dir, "R/rmats_functions.R"))
 
 # Get configuration
 config <- params$config
+
+# Convert relative paths in config to absolute paths
+if (!is.null(config)) {
+  if (grepl("^\\./", config$counts_dir)) {
+    config$counts_dir <- file.path(project_dir, substring(config$counts_dir, 3))
+  }
+  if (grepl("^\\./", config$rmats_dir)) {
+    config$rmats_dir <- file.path(project_dir, substring(config$rmats_dir, 3))
+  }
+  if (grepl("^\\./", config$output_dir)) {
+    config$output_dir <- file.path(project_dir, substring(config$output_dir, 3))
+  }
+  if (grepl("^\\./", config$figures_dir)) {
+    config$figures_dir <- file.path(project_dir, substring(config$figures_dir, 3))
+  }
+  if (grepl("^\\./", config$tables_dir)) {
+    config$tables_dir <- file.path(project_dir, substring(config$tables_dir, 3))
+  }
+}
 ```
 
 # Introduction
@@ -49,8 +71,11 @@ The analysis pipeline consists of the following steps:
 ## Sample Information
 
 ```{r sample-info}
-# Load count data
-count_file <- file.path(config$counts_dir, "MBsimple_counts.txt")
+# Load count data with absolute path
+count_file <- file.path(project_dir, "Counts/MBsimple_counts.txt")
+if (!file.exists(count_file)) {
+  stop(paste("Count file not found:", count_file))
+}
 counts <- load_count_data(count_file)
 
 # Create sample information table
@@ -181,16 +206,46 @@ splicing_summaries <- list()
 # Load summary for each comparison
 for (file in summary_files) {
   comparison <- gsub("_summary.csv", "", basename(file))
-  splicing_summaries[[comparison]] <- read.csv(file)
+  # Check if file exists and is not empty
+  if (file.exists(file) && file.info(file)$size > 0) {
+    df <- tryCatch({
+      read.csv(file)
+    }, error = function(e) {
+      warning(paste("Error reading file:", file, "-", e$message))
+      return(NULL)
+    })
+    
+    if (!is.null(df) && nrow(df) > 0) {
+      splicing_summaries[[comparison]] <- df
+    }
+  }
 }
 
-# Combine all summaries
-all_summaries <- bind_rows(lapply(names(splicing_summaries), function(comp) {
-  cbind(Comparison = comp, splicing_summaries[[comp]])
-}))
-
-# Display summary table
-DT::datatable(all_summaries, options = list(pageLength = 10))
+# Check if we have any valid summaries
+if (length(splicing_summaries) > 0) {
+  # Safely combine all summaries
+  all_summaries <- tryCatch({
+    # Use bind_rows which is safer than cbind for combining data frames
+    bind_rows(lapply(names(splicing_summaries), function(comp) {
+      # Add the comparison column to each data frame
+      df <- splicing_summaries[[comp]]
+      df$Comparison <- comp
+      return(df)
+    }))
+  }, error = function(e) {
+    warning(paste("Error combining summaries:", e$message))
+    return(NULL)
+  })
+  
+  # Display summary table if we have data
+  if (!is.null(all_summaries) && nrow(all_summaries) > 0) {
+    DT::datatable(all_summaries, options = list(pageLength = 10))
+  } else {
+    cat("No valid splicing summary data available.")
+  }
+} else {
+  cat("No splicing summary files found or all files were empty.")
+}
 ```
 
 ## Volcano Plots

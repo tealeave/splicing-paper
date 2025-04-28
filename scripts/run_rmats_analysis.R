@@ -77,24 +77,52 @@ if (!is.null(results)) {
     
     for (event_type in event_types) {
       # Get events
-      events <- getSig(maser_obj, event_type, fdr = 0.05, dpsi = 0.1)
+      events <- tryCatch({
+        getSig(maser_obj, event_type, fdr = 0.05, dpsi = 0.1)
+      }, error = function(e) {
+        warning(paste("Error getting significant events for", event_type, ":", e$message))
+        return(NULL)
+      })
       
-      if (!is.null(events) && nrow(events) > 0) {
-        # Count events
-        total_events <- nrow(events@metadata)
-        sig_events <- sum(events@metadata$FDR < 0.05 & abs(events@metadata$dPSI) > 0.1)
-        up_events <- sum(events@metadata$FDR < 0.05 & events@metadata$dPSI > 0.1)
-        down_events <- sum(events@metadata$FDR < 0.05 & events@metadata$dPSI < -0.1)
+      if (!is.null(events)) {
+        # Try to access metadata
+        metadata <- tryCatch({
+          slot(events, event_type)@metadata
+        }, error = function(e) {
+          warning(paste("Error accessing metadata for", event_type, ":", e$message))
+          return(NULL)
+        })
         
-        # Add to summary table
-        summary_table <- rbind(summary_table, data.frame(
-          EventType = event_type,
-          TotalEvents = total_events,
-          SignificantEvents = sig_events,
-          UpregulatedEvents = up_events,
-          DownregulatedEvents = down_events,
-          stringsAsFactors = FALSE
-        ))
+        if (!is.null(metadata) && nrow(metadata) > 0) {
+          # Count events
+          total_events <- nrow(metadata)
+          
+          # Check if FDR and dPSI columns exist
+          if (all(c("FDR", "dPSI") %in% colnames(metadata))) {
+            sig_events <- sum(metadata$FDR < 0.05 & abs(metadata$dPSI) > 0.1)
+            up_events <- sum(metadata$FDR < 0.05 & metadata$dPSI > 0.1)
+            down_events <- sum(metadata$FDR < 0.05 & metadata$dPSI < -0.1)
+          } else {
+            sig_events <- NA
+            up_events <- NA
+            down_events <- NA
+          }
+          
+          # Add to summary table
+          summary_table <- rbind(summary_table, data.frame(
+            EventType = event_type,
+            TotalEvents = total_events,
+            SignificantEvents = sig_events,
+            UpregulatedEvents = up_events,
+            DownregulatedEvents = down_events,
+            stringsAsFactors = FALSE
+          ))
+          
+          # Save detailed table
+          write.csv(metadata,
+                    file = file.path(tables_dir, paste0(comparison, "_", event_type, "_events.csv")),
+                    row.names = FALSE)
+        }
       }
     }
     
@@ -102,22 +130,6 @@ if (!is.null(results)) {
     write.csv(summary_table, 
               file = file.path(tables_dir, paste0(comparison, "_summary.csv")),
               row.names = FALSE)
-    
-    # Create detailed tables for each event type
-    for (event_type in event_types) {
-      # Get significant events
-      sig_events <- getSig(maser_obj, event_type, fdr = 0.05, dpsi = 0.1)
-      
-      if (!is.null(sig_events) && nrow(sig_events) > 0) {
-        # Extract metadata
-        event_data <- sig_events@metadata
-        
-        # Save detailed table
-        write.csv(event_data,
-                  file = file.path(tables_dir, paste0(comparison, "_", event_type, "_events.csv")),
-                  row.names = FALSE)
-      }
-    }
   }
   
   cat("rMATS/MASER analysis completed successfully.\n")

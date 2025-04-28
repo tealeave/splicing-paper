@@ -87,11 +87,23 @@ if (!is.null(results)) {
   
   # Create MA plots for each comparison
   for (i in seq_along(comparisons)) {
+    # Convert data.frame to DESeqResults object for plotMA
+    res_data <- results[[i]]
+    res_obj <- DESeqResults(
+      DataFrame(
+        baseMean = res_data$baseMean,
+        log2FoldChange = res_data$log2FoldChange,
+        pvalue = res_data$PValue,
+        padj = res_data$FDR
+      )
+    )
+    
+    # Create MA plot
     pdf(file.path(CONFIG$figures_dir, paste0("ma_plot_", 
                                            gsub(" ", "_", paste(comparisons[[i]], collapse = "_vs_")), 
                                            ".pdf")), 
         width = 8, height = 6)
-    plotMA(results[[i]], main = paste("MA Plot:", comparisons[[i]][1], "vs", comparisons[[i]][2]))
+    plotMA(res_obj, main = paste("MA Plot:", comparisons[[i]][1], "vs", comparisons[[i]][2]))
     dev.off()
   }
   

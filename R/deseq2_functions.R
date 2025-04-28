@@ -40,12 +40,18 @@ create_deseq_dataset <- function(counts, condition_groups, reps) {
     )
   )
   
-  # Create sample data
-  samples <- names(counts)
-  condition <- factor(condition_values)
+  # Ensure we have the right number of samples
+  samples <- colnames(counts)
+  if (length(samples) != length(condition_values)) {
+    stop("Number of samples in count data (", length(samples), 
+         ") does not match number of samples in condition groups (", 
+         length(condition_values), ")")
+  }
   
-  # Create colData
-  col_data <- data.frame(samples = samples, condition = condition)
+  # Create colData with proper sample names
+  condition <- factor(condition_values)
+  col_data <- data.frame(row.names = samples)
+  col_data$condition <- condition
   
   # Create DESeq2 dataset
   dds <- DESeqDataSetFromMatrix(
