@@ -4,7 +4,7 @@
 #' using DESeq2.
 #'
 #' @author David Lin
-#' @date April 28, 2025
+#' @date April, 2025
 
 #' Load count data from file
 #'

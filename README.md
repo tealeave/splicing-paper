@@ -1,7 +1,7 @@
 # RNA Splicing Analysis Pipeline
 
 **Author:** David Lin  
-**Date:** April 28, 2025
+**Date:** April, 2025
 
 ## Overview
 

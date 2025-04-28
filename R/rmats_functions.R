@@ -4,7 +4,7 @@
 #' using rMATS and MASER.
 #'
 #' @author David Lin
-#' @date April 28, 2025
+#' @date April, 2025
 
 #' Load rMATS results for a specific event type
 #'
