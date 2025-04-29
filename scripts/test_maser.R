@@ -4,13 +4,43 @@
 library(maser)
 library(ggplot2)
 
-cat("MASER version:", as.character(packageVersion("maser")), "\n")
+
+
 
 # Use absolute path to rMATS results
 project_dir <- normalizePath("/home/tealeave/projects/splicing/splicing-paper")
 rmats_dir <- file.path(project_dir, "RMATS_results")
 comparisons <- c("468_0_v_468_12", "468_0_v_R8_0", "468_12_v_R8_12", "R8_0_v_R8_12")
 event_types <- c("SE", "RI", "A3SS", "A5SS", "MXE")
+
+# project_dir/output/test/logs
+# Create output directories if they don't exist
+output_dir <- file.path(project_dir, "output", "test")
+if (!dir.exists(output_dir)) {
+  dir.create(output_dir, recursive = TRUE)
+}
+logs_dir <- file.path(output_dir, "logs")
+if (!dir.exists(logs_dir)) {
+  dir.create(logs_dir, recursive = TRUE)
+}
+# Create a timestamped log file name
+log_file_name <- paste0("maser_test_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".log")
+log_file_path <- file.path(logs_dir, log_file_name)
+
+# Redirect console output (stdout and stderr/messages) to the log file
+# open a connection for appending
+zz <- file(log_file_path, open = "a")
+
+# redirect standard output (cat, print, etc):
+sink(zz, append = TRUE, split = TRUE)
+
+# redirect messages (message(), warnings, errors) as well:
+sink(zz, append = TRUE, type = "message")
+
+# now both cat() and message() go into maser_test.log
+message("🚀 Starting MASER test at ", Sys.time())
+
+cat("MASER version:", as.character(packageVersion("maser")), "\n")
 
 # Function to test loading rMATS results
 test_maser_loading <- function(comparison) {
