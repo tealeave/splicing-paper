@@ -4,17 +4,7 @@
 #' using rMATS and MASER.
 #'
 #' @author David Lin
-#' @date April 28, 2025
-
-# Ensure necessary packages are loaded (can be done in the main script too)
-# suppressPackageStartupMessages({
-#   library(maser)
-#   library(ggplot2)
-# })
-
-#' Create MASER object from rMATS results
-#'
-#' @param rmats_dir Directory containing rMATS results
+#' @param base_dir Base directory containing rMATS results.
 #' @param comparison Comparison name (e.g., "468_0_v_468_12")
 #' @param event_types Vector of event types to include (currently unused by maser constructor)
 #' @return MASER object or NULL if creation fails

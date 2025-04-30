@@ -5,7 +5,6 @@
 #' This script runs the DESeq2 analysis pipeline for RNA-seq data.
 #'
 #' @author David Lin
-#' @date April 28, 2025
 
 # Load required libraries
 suppressPackageStartupMessages({

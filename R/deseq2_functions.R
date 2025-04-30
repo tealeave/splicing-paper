@@ -4,7 +4,6 @@
 #' using DESeq2.
 #'
 #' @author David Lin
-#' @date April, 2025
 
 #' Load count data from file
 #'
@@ -65,7 +64,7 @@ create_deseq_dataset <- function(counts, condition_groups, reps) {
 
 #' Run DESeq2 analysis and extract results
 #'
-#' @param dds DESeq2 dataset
+#' @param dds A DESeqDataSet object.
 #' @param comparison Vector with two condition names to compare
 #' @return Data frame with DESeq2 results
 #' @export

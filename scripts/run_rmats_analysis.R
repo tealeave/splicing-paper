@@ -5,7 +5,6 @@
 #' This script runs the rMATS/MASER analysis pipeline for alternative splicing data.
 #'
 #' @author David Lin
-#' @date April 28, 2025
 
 # Load required libraries
 suppressPackageStartupMessages({

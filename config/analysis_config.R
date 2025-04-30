@@ -1,5 +1,4 @@
-# RNA Splicing Analysis Configuration
-# Created: April 28, 2025
+# Configuration file for the splicing analysis pipeline
 
 # Base output directory
 BASE_OUTPUT_DIR <- "./output"

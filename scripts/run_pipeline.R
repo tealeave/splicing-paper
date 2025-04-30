@@ -7,7 +7,6 @@
 #' alternative splicing analysis with rMATS/MASER.
 #'
 #' @author David Lin
-#' @date April 28, 2025
 
 # Record start time
 start_time <- Sys.time()
