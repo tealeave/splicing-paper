@@ -4,7 +4,6 @@
 #' using DESeq2.
 #'
 #' @author David Lin
-#' @date April, 2025
 
 #' Load count data from file
 #'
@@ -65,7 +64,7 @@ create_deseq_dataset <- function(counts, condition_groups, reps) {
 
 #' Run DESeq2 analysis and extract results
 #'
-#' @param dds DESeq2 dataset
+#' @param dds A DESeqDataSet object.
 #' @param comparison Vector with two condition names to compare
 #' @return Data frame with DESeq2 results
 #' @export
@@ -102,10 +101,19 @@ run_deseq_analysis <- function(dds, comparison) {
 #' Save DESeq2 results to CSV file
 #'
 #' @param data DESeq2 results data frame
-#' @param file_path Output file path
+#' @param output_dir Directory to save the file
+#' @param filename Name of the output CSV file
 #' @export
-save_deseq_results <- function(data, file_path) {
+save_deseq_results <- function(data, output_dir, filename) {
+  # Ensure output directory exists
+  dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+  
+  # Construct full file path
+  file_path <- file.path(output_dir, filename)
+  
+  # Save the data
   write.csv(data, file = file_path, row.names = TRUE, quote = FALSE)
+  cat("  Saved DESeq2 results to:", file_path, "\n")
 }
 
 #' Run complete DESeq2 analysis pipeline
@@ -114,10 +122,11 @@ save_deseq_results <- function(data, file_path) {
 #' @param condition_groups List of condition names
 #' @param reps Number of replicates per condition
 #' @param comparisons List of comparisons to make
-#' @param output_files List of output file paths
+#' @param output_filenames List of output filenames (not full paths)
+#' @param output_dir Directory to save result tables
 #' @return List of result data frames
 #' @export
-run_deseq_pipeline <- function(count_file, condition_groups, reps, comparisons, output_files) {
+run_deseq_pipeline <- function(count_file, condition_groups, reps, comparisons, output_filenames, output_dir) {
   # Load count data
   counts <- load_count_data(count_file)
   
@@ -128,11 +137,12 @@ run_deseq_pipeline <- function(count_file, condition_groups, reps, comparisons, 
   results_list <- list()
   
   for (i in seq_along(comparisons)) {
+    cat("  Running DESeq2 comparison:", paste(comparisons[[i]], collapse=" vs "), "\n")
     # Run analysis
     results <- run_deseq_analysis(dds, comparisons[[i]])
     
-    # Save results
-    save_deseq_results(results, output_files[[i]])
+    # Save results using the specified directory and filename
+    save_deseq_results(results, output_dir, output_filenames[[i]])
     
     # Store results
     results_list[[i]] <- results

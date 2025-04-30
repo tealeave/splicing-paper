@@ -5,7 +5,6 @@
 #' This script runs the DESeq2 analysis pipeline for RNA-seq data.
 #'
 #' @author David Lin
-#' @date April, 2025
 
 # Load required libraries
 suppressPackageStartupMessages({
@@ -19,24 +18,16 @@ source("config/analysis_config.R")
 source("R/deseq2_functions.R")
 
 # Create output directories if they don't exist
-if (!dir.exists(CONFIG$output_dir)) {
-  dir.create(CONFIG$output_dir, recursive = TRUE)
-}
-if (!dir.exists(CONFIG$figures_dir)) {
-  dir.create(CONFIG$figures_dir, recursive = TRUE)
-}
-if (!dir.exists(CONFIG$tables_dir)) {
-  dir.create(CONFIG$tables_dir, recursive = TRUE)
-}
+dir.create(CONFIG$deseq2_output_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(CONFIG$deseq2_figures_dir, showWarnings = FALSE, recursive = TRUE)
+dir.create(CONFIG$deseq2_tables_dir, showWarnings = FALSE, recursive = TRUE)
 
 # Set up parameters
-count_file <- file.path(CONFIG$counts_dir, "MBsimple_counts.txt")
+count_file <- file.path(CONFIG$counts_dir, "MBsimple_counts.txt") # Assuming MBsimple for now
 reps <- as.integer(CONFIG$deseq2$design)
 condition_groups <- CONFIG$deseq2$conditions
 comparisons <- CONFIG$deseq2$comparisons
-output_files <- lapply(CONFIG$deseq2$output_files, function(file) {
-  file.path(CONFIG$tables_dir, file)
-})
+output_filenames <- CONFIG$deseq2$output_files
 
 # Log analysis start
 cat("Starting DESeq2 analysis...\n")
@@ -45,7 +36,8 @@ cat("Number of comparisons:", length(comparisons), "\n")
 
 # Run DESeq2 pipeline
 results <- tryCatch({
-  run_deseq_pipeline(count_file, condition_groups, reps, comparisons, output_files)
+  # Pass the specific tables directory
+  run_deseq_pipeline(count_file, condition_groups, reps, comparisons, output_filenames, CONFIG$deseq2_tables_dir)
 }, error = function(e) {
   cat("Error in DESeq2 analysis:", e$message, "\n")
   return(NULL)
@@ -68,8 +60,10 @@ if (!is.null(results)) {
     theme_minimal() +
     ggtitle("PCA of RNA-seq Samples")
   
-  # Save PCA plot
-  ggsave(file.path(CONFIG$figures_dir, "pca_plot.pdf"), pca_plot, width = 8, height = 6)
+  # Save PCA plot to the correct figures directory
+  pca_plot_path <- file.path(CONFIG$deseq2_figures_dir, "pca_plot.pdf")
+  ggsave(pca_plot_path, pca_plot, width = 8, height = 6)
+  cat("  Saved PCA plot to:", pca_plot_path, "\n")
   
   # Create heatmap of sample distances
   sampleDists <- dist(t(assay(vsd)))
@@ -77,13 +71,15 @@ if (!is.null(results)) {
   rownames(sampleDistMatrix) <- colnames(vsd)
   colnames(sampleDistMatrix) <- colnames(vsd)
   
-  # Save heatmap
-  pdf(file.path(CONFIG$figures_dir, "sample_distance_heatmap.pdf"), width = 8, height = 6)
+  # Save heatmap to the correct figures directory
+  heatmap_path <- file.path(CONFIG$deseq2_figures_dir, "sample_distance_heatmap.pdf")
+  pdf(heatmap_path, width = 8, height = 6)
   pheatmap(sampleDistMatrix,
            clustering_distance_rows = sampleDists,
            clustering_distance_cols = sampleDists,
            main = "Sample Distance Heatmap")
   dev.off()
+  cat("  Saved heatmap to:", heatmap_path, "\n")
   
   # Create MA plots for each comparison
   for (i in seq_along(comparisons)) {
@@ -98,18 +94,20 @@ if (!is.null(results)) {
       )
     )
     
-    # Create MA plot
-    pdf(file.path(CONFIG$figures_dir, paste0("ma_plot_", 
-                                           gsub(" ", "_", paste(comparisons[[i]], collapse = "_vs_")), 
-                                           ".pdf")), 
-        width = 8, height = 6)
+    # Save MA plot to the correct figures directory
+    ma_plot_filename <- paste0("ma_plot_", 
+                             gsub(" ", "_", paste(comparisons[[i]], collapse = "_vs_")), 
+                             ".pdf")
+    ma_plot_path <- file.path(CONFIG$deseq2_figures_dir, ma_plot_filename)
+    pdf(ma_plot_path, width = 8, height = 6)
     plotMA(res_obj, main = paste("MA Plot:", comparisons[[i]][1], "vs", comparisons[[i]][2]))
     dev.off()
+    cat("  Saved MA plot to:", ma_plot_path, "\n")
   }
   
   cat("DESeq2 analysis completed successfully.\n")
-  cat("Results saved to:", CONFIG$tables_dir, "\n")
-  cat("Figures saved to:", CONFIG$figures_dir, "\n")
+  cat("Results saved to:", CONFIG$deseq2_tables_dir, "\n")
+  cat("Figures saved to:", CONFIG$deseq2_figures_dir, "\n")
 } else {
   cat("DESeq2 analysis failed.\n")
 }

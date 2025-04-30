@@ -5,7 +5,6 @@
 #' This script runs the rMATS/MASER analysis pipeline for alternative splicing data.
 #'
 #' @author David Lin
-#' @date April, 2025
 
 # Load required libraries
 suppressPackageStartupMessages({
@@ -19,122 +18,84 @@ suppressPackageStartupMessages({
 source("config/analysis_config.R")
 source("R/rmats_functions.R")
 
-# Create output directories if they don't exist
-if (!dir.exists(CONFIG$output_dir)) {
-  dir.create(CONFIG$output_dir, recursive = TRUE)
-}
-if (!dir.exists(CONFIG$figures_dir)) {
-  dir.create(CONFIG$figures_dir, recursive = TRUE)
-}
-if (!dir.exists(CONFIG$tables_dir)) {
-  dir.create(CONFIG$tables_dir, recursive = TRUE)
-}
+# --- Setup Output Directories and Logging ---
+BASE_OUTPUT_DIR <- CONFIG$rmats_maser_output_dir
+LOGS_DIR <- file.path(BASE_OUTPUT_DIR, "logs")
+PLOTS_DIR <- file.path(BASE_OUTPUT_DIR, "plots") # Consolidated figures dir
+TABLES_DIR <- file.path(BASE_OUTPUT_DIR, "tables") # Consolidated tables dir
 
-# Set up parameters
+# Create output directories if they don't exist
+dir.create(BASE_OUTPUT_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(LOGS_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(PLOTS_DIR, showWarnings = FALSE, recursive = TRUE)
+dir.create(TABLES_DIR, showWarnings = FALSE, recursive = TRUE)
+
+# Create a timestamped log file name
+log_file_name <- paste0("run_rmats_analysis_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".log")
+log_file_path <- file.path(LOGS_DIR, log_file_name)
+
+# Redirect console output (stdout and stderr/messages) to the log file
+log_con <- file(log_file_path, open = "wt")
+sink(log_con, type = "output") # Redirects print(), cat(), etc.
+sink(log_con, type = "message") # Redirects message(), warning()
+
+# Ensure sink is closed even if the script stops with an error
+on.exit({
+  message("Closing log file...")
+  sink(type = "message")
+  sink(type = "output")
+  close(log_con)
+  message("Log file closed: ", log_file_path)
+})
+
+message("Logging started. Output directed to: ", log_file_path)
+message("Base output directory: ", BASE_OUTPUT_DIR)
+
+# --- Parameters --- 
+# Set up parameters from config
 rmats_dir <- CONFIG$rmats_dir
 comparisons <- CONFIG$rmats$comparisons
 event_types <- CONFIG$rmats$event_types
-figures_dir <- file.path(CONFIG$figures_dir, "splicing")
-tables_dir <- file.path(CONFIG$tables_dir, "splicing")
-
-# Create subdirectories
-if (!dir.exists(figures_dir)) {
-  dir.create(figures_dir, recursive = TRUE)
-}
-if (!dir.exists(tables_dir)) {
-  dir.create(tables_dir, recursive = TRUE)
-}
+fdr_cutoff <- CONFIG$rmats$fdr_cutoff
+deltaPSI_cutoff <- CONFIG$rmats$deltaPSI_cutoff
+avg_reads_filter <- CONFIG$rmats$avg_reads_filter
 
 # Log analysis start
-cat("Starting rMATS/MASER analysis...\n")
-cat("rMATS directory:", rmats_dir, "\n")
-cat("Number of comparisons:", length(comparisons), "\n")
-cat("Event types:", paste(event_types, collapse = ", "), "\n")
+message("Starting rMATS/MASER analysis...")
+message("rMATS directory: ", rmats_dir)
+message("Number of comparisons: ", length(comparisons))
+message("Event types: ", paste(event_types, collapse = ", "))
+message("FDR cutoff: ", fdr_cutoff)
+message("Delta PSI cutoff: ", deltaPSI_cutoff)
+message("Avg Reads Filter: ", avg_reads_filter)
 
+# --- Run Pipeline --- 
 # Run rMATS/MASER pipeline
 results <- tryCatch({
-  run_rmats_pipeline(rmats_dir, comparisons, event_types, figures_dir)
+  run_rmats_pipeline(rmats_dir = rmats_dir, 
+                     comparisons = comparisons, 
+                     event_types = event_types, 
+                     plots_output_dir = PLOTS_DIR,      # Use consolidated dir
+                     tables_output_dir = TABLES_DIR,    # Use consolidated dir
+                     fdr_cutoff = fdr_cutoff, 
+                     deltaPSI_cutoff = deltaPSI_cutoff, 
+                     avg_reads_filter = avg_reads_filter)
 }, error = function(e) {
-  cat("Error in rMATS/MASER analysis:", e$message, "\n")
+  message("Error in rMATS/MASER analysis pipeline: ", e$message)
+  # Print stack trace if possible (might depend on R environment options)
+  # print(sys.calls())
   return(NULL)
 })
 
-# If analysis was successful, create summary tables
-if (!is.null(results)) {
-  # Create summary tables for each comparison
-  for (comparison in names(results)) {
-    maser_obj <- results[[comparison]]
-    
-    # Create summary table for all event types
-    summary_table <- data.frame(
-      EventType = character(),
-      TotalEvents = integer(),
-      SignificantEvents = integer(),
-      UpregulatedEvents = integer(),
-      DownregulatedEvents = integer(),
-      stringsAsFactors = FALSE
-    )
-    
-    for (event_type in event_types) {
-      # Get events
-      events <- tryCatch({
-        getSig(maser_obj, event_type, fdr = 0.05, dpsi = 0.1)
-      }, error = function(e) {
-        warning(paste("Error getting significant events for", event_type, ":", e$message))
-        return(NULL)
-      })
-      
-      if (!is.null(events)) {
-        # Try to access metadata
-        metadata <- tryCatch({
-          slot(events, event_type)@metadata
-        }, error = function(e) {
-          warning(paste("Error accessing metadata for", event_type, ":", e$message))
-          return(NULL)
-        })
-        
-        if (!is.null(metadata) && nrow(metadata) > 0) {
-          # Count events
-          total_events <- nrow(metadata)
-          
-          # Check if FDR and dPSI columns exist
-          if (all(c("FDR", "dPSI") %in% colnames(metadata))) {
-            sig_events <- sum(metadata$FDR < 0.05 & abs(metadata$dPSI) > 0.1)
-            up_events <- sum(metadata$FDR < 0.05 & metadata$dPSI > 0.1)
-            down_events <- sum(metadata$FDR < 0.05 & metadata$dPSI < -0.1)
-          } else {
-            sig_events <- NA
-            up_events <- NA
-            down_events <- NA
-          }
-          
-          # Add to summary table
-          summary_table <- rbind(summary_table, data.frame(
-            EventType = event_type,
-            TotalEvents = total_events,
-            SignificantEvents = sig_events,
-            UpregulatedEvents = up_events,
-            DownregulatedEvents = down_events,
-            stringsAsFactors = FALSE
-          ))
-          
-          # Save detailed table
-          write.csv(metadata,
-                    file = file.path(tables_dir, paste0(comparison, "_", event_type, "_events.csv")),
-                    row.names = FALSE)
-        }
-      }
-    }
-    
-    # Save summary table
-    write.csv(summary_table, 
-              file = file.path(tables_dir, paste0(comparison, "_summary.csv")),
-              row.names = FALSE)
-  }
-  
-  cat("rMATS/MASER analysis completed successfully.\n")
-  cat("Results saved to:", tables_dir, "\n")
-  cat("Figures saved to:", figures_dir, "\n")
+# --- Wrap Up --- 
+# Check if analysis was successful
+if (!is.null(results) && length(results) > 0) {
+  message("rMATS/MASER analysis completed successfully.")
+  message("Summary and event tables saved to: ", TABLES_DIR)
+  message("Plots saved to: ", PLOTS_DIR)
 } else {
-  cat("rMATS/MASER analysis failed.\n")
+  message("rMATS/MASER analysis failed or no results were generated.")
 }
+
+message("Script finished.")
+# The on.exit() function will handle closing the sink automatically here
